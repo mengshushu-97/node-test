@@ -9,6 +9,12 @@
 - runner 用户可以执行 `kubectl`
 - runner 用户可以免密执行 `k3s ctr -n k8s.io images import`
 
+完整 runner 安装步骤见 [github-runner-setup.md](github-runner-setup.md)。安装完成后先执行：
+
+```bash
+./scripts/check-runner-prereqs.sh
+```
+
 免密 sudo 示例，假设 runner 用户是 `monitor`：
 
 ```bash
