@@ -1,0 +1,42 @@
+name: Deploy Test
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: node-test-test
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build and deploy node-test
+    runs-on:
+      - self-hosted
+      - k3s
+      - test
+    env:
+      APP_NAME: node-test
+      CONTAINER_NAME: node-test
+      NAMESPACE: test
+      MANIFEST_DIR: k8s/test
+      IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Test
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            node:20-bookworm-slim \
+            sh -lc "npm ci && npm test"
+
+      - name: Build local image and deploy to k3s
+        run: ./scripts/deploy-local-k3s.sh
