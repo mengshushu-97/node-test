@@ -30,6 +30,7 @@ need_command() {
 
 KUBECTL="${KUBECTL:-kubectl}"
 K3S_BIN="${K3S_BIN:-k3s}"
+CHECK_NAMESPACE="${CHECK_NAMESPACE:-test}"
 
 echo "---- RUNNER ----"
 echo "User: $(id -un)"
@@ -66,10 +67,10 @@ if command -v "$KUBECTL" >/dev/null 2>&1; then
     fail "kubectl cannot access cluster"
   fi
 
-  if "$KUBECTL" get namespace test >/dev/null 2>&1; then
-    pass "namespace test exists"
+  if "$KUBECTL" get namespace "$CHECK_NAMESPACE" >/dev/null 2>&1; then
+    pass "namespace $CHECK_NAMESPACE exists"
   else
-    warn "namespace test does not exist; workflow will create it from k8s/test"
+    warn "namespace $CHECK_NAMESPACE does not exist; workflow will create it from manifests"
   fi
 fi
 
@@ -91,7 +92,8 @@ if command -v "$K3S_BIN" >/dev/null 2>&1; then
 fi
 
 echo "---- WORKFLOW LABELS ----"
-echo "GitHub runner must have labels: self-hosted, k3s, test"
+echo "Test workflow labels: self-hosted, k3s, test"
+echo "Prod workflow labels: self-hosted, k3s, prod"
 
 echo "---- SUMMARY ----"
 echo "PASS=$PASS WARN=$WARN FAIL=$FAIL"

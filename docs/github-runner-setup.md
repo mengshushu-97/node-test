@@ -41,7 +41,7 @@ cd /data/github-runners/node-test
   --url https://github.com/mengshushu-97/node-test \
   --token '<GITHUB_GENERATED_RUNNER_TOKEN>' \
   --name monitor-1-node-test \
-  --labels k3s,test \
+  --labels k3s,test,prod \
   --work _work
 ```
 
@@ -61,14 +61,16 @@ sudo ./svc.sh status
 在本仓库代码目录执行：
 
 ```bash
-./scripts/check-runner-prereqs.sh
+CHECK_NAMESPACE=test ./scripts/check-runner-prereqs.sh
+CHECK_NAMESPACE=prod ./scripts/check-runner-prereqs.sh
 ```
 
 必须确认 `FAIL=0` 后再触发 workflow。
 
 ## 5. 触发部署
 
-推送到 `main` 会自动部署测试环境，也可以在 GitHub 页面手动执行：
+推送到 `main` 会自动部署测试环境，也可以在 GitHub 页面手动执行测试或生产发布：
 
 `Actions -> Deploy Test -> Run workflow`
 
+`Actions -> Deploy Prod -> Run workflow`，`confirm` 输入 `deploy-prod`
