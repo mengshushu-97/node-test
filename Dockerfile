@@ -1,4 +1,4 @@
-FROM harbor.local/base/node:20-bookworm-slim
+FROM harbor.local/library/node:20-bookworm-slim
 
 WORKDIR /app
 
