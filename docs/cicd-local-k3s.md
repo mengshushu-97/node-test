@@ -1,65 +1,90 @@
 # node-test CI/CD
 
-本仓库暂时不使用镜像仓库。GitHub Actions 运行在 k3s 服务器上的 self-hosted runner，本机执行测试、构建 Docker 镜像、导入 k3s containerd，再滚动更新 Deployment。
+本仓库使用 Harbor + Argo CD 发布。GitHub Actions 只负责测试、构建镜像、推送 Harbor、更新 Git 里的 Kubernetes manifest；Argo CD 负责把 Git 中的目标状态同步到 k3s。
 
 ## 服务器前置条件
 
-- GitHub self-hosted runner 安装在 k3s 服务器上，并带有标签：`self-hosted`、`k3s`、`test`、`prod`
-- runner 用户可以执行 `docker`
-- runner 用户可以执行 `kubectl`
-- runner 用户可以免密执行 `k3s ctr -n k8s.io images import`
+- Harbor 可通过 `harbor.local` 访问，并已创建 `test`、`prod` 项目。
+- k3s 已配置 `/etc/rancher/k3s/registries.yaml`，可以通过 HTTP 拉取 `harbor.local`。
+- GitHub self-hosted runner 带有标签：`self-hosted`、`k3s`、`test`、`prod`。
+- runner 用户已在服务器本地执行 `docker login harbor.local`。
+- `test`、`prod` namespace 中都存在 `harbor-auth`。
 
-完整 runner 安装步骤见 [github-runner-setup.md](github-runner-setup.md)。安装完成后先执行：
+runner 用户本地登录 Harbor：
 
 ```bash
-./scripts/check-runner-prereqs.sh
+export HARBOR_REGISTRY=harbor.local
+export HARBOR_USERNAME=admin
+export HARBOR_PASSWORD="$(sudo awk -F= '/^HARBOR_ADMIN_PASSWORD=/{print $2}' /data/harbor/secrets.env)"
+
+echo "$HARBOR_PASSWORD" | docker login "$HARBOR_REGISTRY" -u "$HARBOR_USERNAME" --password-stdin
 ```
 
-免密 sudo 示例，假设 runner 用户是 `monitor`：
+创建 namespace 和镜像拉取 Secret：
 
 ```bash
-sudo tee /etc/sudoers.d/monitor-k3s-runner >/dev/null <<'EOF'
-monitor ALL=(root) NOPASSWD: /usr/local/bin/k3s
-EOF
-sudo chmod 440 /etc/sudoers.d/monitor-k3s-runner
+export HARBOR_REGISTRY=harbor.local
+export HARBOR_USERNAME=admin
+export HARBOR_PASSWORD="$(sudo awk -F= '/^HARBOR_ADMIN_PASSWORD=/{print $2}' /data/harbor/secrets.env)"
+
+for ns in test prod; do
+  kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create secret docker-registry harbor-auth \
+    -n "$ns" \
+    --docker-server="$HARBOR_REGISTRY" \
+    --docker-username="$HARBOR_USERNAME" \
+    --docker-password="$HARBOR_PASSWORD" \
+    --dry-run=client -o yaml | kubectl apply -f -
+done
+```
+
+部署前自检：
+
+```bash
+CHECK_NAMESPACE=test HARBOR_REGISTRY=harbor.local ./scripts/check-runner-prereqs.sh
+CHECK_NAMESPACE=prod HARBOR_REGISTRY=harbor.local ./scripts/check-runner-prereqs.sh
 ```
 
 ## 部署流程
 
-push 到 `main` 后自动部署测试环境：
+测试环境：push 到 `main` 后自动执行：
 
 ```text
 npm ci + npm test
-docker build -t node-test:$GITHUB_SHA .
-docker save node-test:$GITHUB_SHA
-sudo k3s ctr -n k8s.io images import /tmp/node-test-$GITHUB_SHA.tar
-kubectl apply -f k8s/test
-kubectl -n test set image deployment/node-test node-test=node-test:$GITHUB_SHA
-kubectl -n test rollout status deployment/node-test
+docker build -t harbor.local/test/node-test:$GITHUB_SHA .
+docker push harbor.local/test/node-test:$GITHUB_SHA
+更新 k8s/test/deployment.yaml image
+git commit + push
+Argo CD 自动同步 test
 ```
 
-生产环境只允许手动触发，执行前需要在 GitHub workflow 输入 `deploy-prod`：
+生产环境：手动触发 `Deploy Prod`，`confirm` 输入 `deploy-prod`：
 
 ```text
 npm ci + npm test
-docker build -t node-test:$GITHUB_SHA .
-docker save node-test:$GITHUB_SHA
-sudo k3s ctr -n k8s.io images import /tmp/node-test-$GITHUB_SHA.tar
-kubectl apply -f k8s/prod
-kubectl -n prod set image deployment/node-test node-test=node-test:$GITHUB_SHA
-kubectl -n prod rollout status deployment/node-test
+docker build -t harbor.local/prod/node-test:$GITHUB_SHA .
+docker push harbor.local/prod/node-test:$GITHUB_SHA
+更新 k8s/prod/deployment.yaml image
+git commit + push
+Argo CD 自动同步 prod
 ```
 
-`k8s/test` 和 `k8s/prod` 默认 2 副本，使用 `maxUnavailable: 0`、`maxSurge: 1` 和 readiness probe，保证滚动发布期间至少保留旧副本提供服务。生产环境额外配置 `preStop` 延迟和 PDB。
+`k8s/test` 和 `k8s/prod` 默认 2 副本，使用 `maxUnavailable: 0`、`maxSurge: 1` 和 readiness probe。生产环境额外配置 `preStop` 延迟和 PDB。
 
-## 手动触发
+## Argo CD
 
-测试环境：`Actions -> Deploy Test -> Run workflow`
+如果仓库是私有仓库，先在 Argo CD 中添加仓库凭证。然后应用：
 
-生产环境：`Actions -> Deploy Prod -> Run workflow`，`confirm` 输入 `deploy-prod`。
+```bash
+kubectl apply -f argocd/applications.yaml
+kubectl get applications -n argocd | grep node-test
+```
 
-## 限制
+## 回滚
 
-- 该方案只适合当前单节点 k3s。扩容到多节点后，每个节点都必须有同一个镜像，建议切换到阿里云 ACR。
-- 如果扩容后仍不使用镜像仓库，必须把镜像导入所有可能调度应用 Pod 的节点，否则新节点会因为本地没有镜像而启动失败。
-- 不建议让 Argo CD 对这个应用开启 automated self-heal，否则可能把 Actions 设置的镜像 tag 回滚到 YAML 中的 `node-test:local`。
+推荐通过 Git 回滚 `k8s/<env>/deployment.yaml` 中的镜像 tag，然后由 Argo CD 同步。应急时可执行：
+
+```bash
+kubectl rollout undo deployment/node-test -n test
+kubectl rollout undo deployment/node-test -n prod
+```

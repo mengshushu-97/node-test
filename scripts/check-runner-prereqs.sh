@@ -29,8 +29,8 @@ need_command() {
 }
 
 KUBECTL="${KUBECTL:-kubectl}"
-K3S_BIN="${K3S_BIN:-k3s}"
 CHECK_NAMESPACE="${CHECK_NAMESPACE:-test}"
+HARBOR_REGISTRY="${HARBOR_REGISTRY:-harbor.local}"
 
 echo "---- RUNNER ----"
 echo "User: $(id -un)"
@@ -40,9 +40,9 @@ echo "PWD: $(pwd)"
 echo "---- COMMANDS ----"
 need_command git
 need_command docker
+need_command curl
+need_command python3
 need_command "$KUBECTL"
-need_command "$K3S_BIN"
-need_command sudo
 
 echo "---- DOCKER ----"
 if command -v docker >/dev/null 2>&1; then
@@ -57,6 +57,13 @@ if command -v docker >/dev/null 2>&1; then
   else
     fail "docker daemon is not reachable"
   fi
+
+  DOCKER_CONFIG_FILE="${DOCKER_CONFIG:-$HOME/.docker}/config.json"
+  if [ -f "$DOCKER_CONFIG_FILE" ] && grep -q "\"$HARBOR_REGISTRY\"" "$DOCKER_CONFIG_FILE"; then
+    pass "docker has local login config for $HARBOR_REGISTRY"
+  else
+    fail "docker local login config missing for $HARBOR_REGISTRY; run docker login as the runner user"
+  fi
 fi
 
 echo "---- KUBECTL ----"
@@ -70,24 +77,23 @@ if command -v "$KUBECTL" >/dev/null 2>&1; then
   if "$KUBECTL" get namespace "$CHECK_NAMESPACE" >/dev/null 2>&1; then
     pass "namespace $CHECK_NAMESPACE exists"
   else
-    warn "namespace $CHECK_NAMESPACE does not exist; workflow will create it from manifests"
+    fail "namespace $CHECK_NAMESPACE does not exist; create it before Argo CD sync"
+  fi
+
+  if "$KUBECTL" get secret harbor-auth -n "$CHECK_NAMESPACE" >/dev/null 2>&1; then
+    pass "secret harbor-auth exists in namespace $CHECK_NAMESPACE"
+  else
+    fail "secret harbor-auth missing in namespace $CHECK_NAMESPACE"
   fi
 fi
 
-echo "---- K3S CONTAINERD ----"
-if command -v "$K3S_BIN" >/dev/null 2>&1; then
-  if [ "$(id -u)" -eq 0 ]; then
-    if "$K3S_BIN" ctr -n k8s.io images ls >/dev/null 2>&1; then
-      pass "k3s containerd namespace k8s.io accessible"
-    else
-      fail "k3s containerd namespace k8s.io is not accessible"
-    fi
+echo "---- HARBOR ----"
+if command -v curl >/dev/null 2>&1; then
+  HARBOR_CODE="$(curl -sS -o /dev/null -w '%{http_code}' "http://${HARBOR_REGISTRY}/v2/" || true)"
+  if [ "$HARBOR_CODE" = "200" ] || [ "$HARBOR_CODE" = "401" ]; then
+    pass "harbor registry reachable: $HARBOR_REGISTRY"
   else
-    if sudo -n "$K3S_BIN" ctr -n k8s.io images ls >/dev/null 2>&1; then
-      pass "sudo k3s ctr accessible without password"
-    else
-      fail "sudo k3s ctr requires password or is not allowed"
-    fi
+    fail "harbor registry unreachable: $HARBOR_REGISTRY http_status=$HARBOR_CODE"
   fi
 fi
 

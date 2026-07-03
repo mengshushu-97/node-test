@@ -1,6 +1,6 @@
 # GitHub Runner Setup
 
-本仓库使用部署机本地构建镜像，不推送镜像仓库。GitHub self-hosted runner 必须安装在 k3s 服务器上，并使用 `monitor` 用户运行。
+本仓库使用 GitHub self-hosted runner 构建镜像并推送到 Harbor。runner 建议安装在 k3s/Harbor 所在服务器上，并使用 `monitor` 用户运行。
 
 ## 1. 准备 monitor 用户权限
 
@@ -11,11 +11,6 @@ mkdir -p ~/.kube
 sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
 sudo chown "$USER:$USER" ~/.kube/config
 chmod 600 ~/.kube/config
-
-sudo tee /etc/sudoers.d/monitor-k3s-runner >/dev/null <<'EOF'
-monitor ALL=(root) NOPASSWD: /usr/local/bin/k3s
-EOF
-sudo chmod 440 /etc/sudoers.d/monitor-k3s-runner
 ```
 
 执行 `usermod` 后需要重新登录 `monitor`，否则 docker 用户组可能不生效。
@@ -58,7 +53,17 @@ sudo ./svc.sh status
 
 ## 4. 部署前自检
 
-在本仓库代码目录执行：
+先用运行 runner 的 `monitor` 用户在服务器本地登录 Harbor：
+
+```bash
+export HARBOR_REGISTRY=harbor.local
+export HARBOR_USERNAME=admin
+export HARBOR_PASSWORD="$(sudo awk -F= '/^HARBOR_ADMIN_PASSWORD=/{print $2}' /data/harbor/secrets.env)"
+
+echo "$HARBOR_PASSWORD" | docker login "$HARBOR_REGISTRY" -u "$HARBOR_USERNAME" --password-stdin
+```
+
+再在本仓库代码目录执行：
 
 ```bash
 CHECK_NAMESPACE=test ./scripts/check-runner-prereqs.sh
