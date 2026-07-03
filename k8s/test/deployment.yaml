@@ -27,7 +27,7 @@ spec:
         - name: harbor-auth
       containers:
         - name: node-test
-          image: harbor.local/test/node-test:0853592242a3023ec705a2b3f3f740d6f381c271
+          image: harbor.local/test/node-test:4dd2fde2eff4b2e1a3acaaa717651de6e0911f25
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
