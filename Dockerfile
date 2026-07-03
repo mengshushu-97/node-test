@@ -2,8 +2,8 @@ FROM node:20-bookworm-slim
 
 WORKDIR /app
 
-COPY package.json ./
-RUN npm install --omit=dev
+COPY package.json package-lock.json .npmrc ./
+RUN npm ci --omit=dev
 
 COPY src ./src
 COPY scripts ./scripts

@@ -7,7 +7,7 @@ metadata:
     app.kubernetes.io/name: node-test
     app.kubernetes.io/part-of: demo-chain
 spec:
-  replicas: 2
+  replicas: 0
   minReadySeconds: 10
   strategy:
     type: RollingUpdate
@@ -113,7 +113,7 @@ metadata:
   name: node-test
   namespace: prod
 spec:
-  minAvailable: 1
+  minAvailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: node-test

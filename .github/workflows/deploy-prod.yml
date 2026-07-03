@@ -42,11 +42,16 @@ jobs:
 
       - name: Test
         run: |
+          NPM_CACHE_DIR="$HOME/.cache/npm/node-test"
+          mkdir -p "$NPM_CACHE_DIR"
           docker run --rm \
+            --user "$(id -u):$(id -g)" \
             -v "${{ github.workspace }}:/workspace" \
+            -v "$NPM_CACHE_DIR:/tmp/.npm" \
             -w /workspace \
+            -e HOME=/tmp \
             node:20-bookworm-slim \
-            sh -lc "npm ci && npm test"
+            sh -lc "npm ci --cache /tmp/.npm --prefer-offline --registry=https://registry.npmmirror.com && npm test"
 
       - name: Build and push Harbor image
         run: ./scripts/build-push-harbor.sh

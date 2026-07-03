@@ -6,6 +6,7 @@ HARBOR_REGISTRY="${HARBOR_REGISTRY:-harbor.local}"
 HARBOR_PROJECT="${HARBOR_PROJECT:?HARBOR_PROJECT is required}"
 IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short=12 HEAD)}"
 IMAGE="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${APP_NAME}:${IMAGE_TAG}"
+CACHE_IMAGE="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${APP_NAME}:buildcache"
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -30,10 +31,19 @@ if [ -n "${HARBOR_USERNAME:-}" ] || [ -n "${HARBOR_PASSWORD:-}" ]; then
 fi
 
 echo "Building image: $IMAGE"
-docker build -t "$IMAGE" .
+docker pull "$CACHE_IMAGE" >/dev/null 2>&1 || true
+docker build \
+  --build-arg BUILDKIT_INLINE_CACHE=1 \
+  --cache-from "$CACHE_IMAGE" \
+  -t "$IMAGE" \
+  -t "$CACHE_IMAGE" \
+  .
 
 echo "Pushing image: $IMAGE"
 docker push "$IMAGE"
+
+echo "Pushing build cache: $CACHE_IMAGE"
+docker push "$CACHE_IMAGE" >/dev/null || echo "Warning: failed to push build cache $CACHE_IMAGE" >&2
 
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
   echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
